@@ -1,0 +1,214 @@
+---
+title: "Midterm Project"
+author: "Yuwei Wu"
+date: "`r Sys.Date()`"
+output: github_document
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(dtplyr)
+library(lubridate)
+library(leaflet)
+library(R.utils)
+library(kableExtra)
+library(forcats)
+library(stringr)
+```
+
+# Introduction
+Almost every week I will receive Crime Alerts from the USC Department of Public Safety, so I'm interested to know the crime incidence and distribution in LA. This dataset reflects incidents of crime in the City of Los Angeles dating back to 2020. It's provided by the Los Angeles Police Department. 
+
+
+- The primary question is whether the number of crime has decreased in LA from 2020 to 2021.
+
+- The sub-question: 
+
+  Which area of Los Angeles has the highest number of crime in 2021?
+  
+  What is the most common crime type in 2021 and which area occurred most?
+
+
+# Methods
+## Data source
+This dataset is obtained from the Los Angeles Open Data website (https://data.lacity.org/Public-Safety/Crime-Data-from-2020-to-Present/2nrs-mtv8).
+
+## Data cleaning and wrangling
+This original dataset collected data on crimes from January 1st, 2020 to October 10th, 2022. After reading in data, checking the dimensions, headers, and footers, and carefully checking for variable names and types. There are 581764 rows and 29 variables and no missing value in the key variables. There are 137 different crime and 21  areas in LA in the dataset. Transformed the character to date and extract the year from the occurrence date then created a variable called ‘year’, which refers to the year in which the crime occurred. For subsequent analysis, extracting data in 2020 and 2021 to a new dataset, and formed a sub-dataset that only includes data in 2020 and a sub-dataset that only includes data in 2021.
+```{r}
+#Read in data
+crime <- data.table::fread("Crime_Data_from_2020_to_Present.csv")
+```
+```{r, results = FALSE}
+#Check the dimensions, headers, footers
+dim(crime)
+head(crime)
+tail(crime)
+#Take a look at the variables
+str(crime)
+#Take a closer look at the key variables
+table(crime$`DATE OCC`)
+table(crime$`Crm Cd Desc`)
+table(crime$`AREA NAME`)
+distinct(crime, `Crm Cd Desc`)
+distinct(crime, `AREA NAME`)
+#Check missing values
+summary(is.na(crime))
+#Transform character to date and extract the year from the occurrence date then add a new column named "year"
+dates <- as.POSIXct(crime$`DATE OCC`, format = "%m/%d/%Y %H:%M:%S AM")
+crime$year <- format(dates, format="%Y")
+#Extract data in 2020 and 2021
+data_all <- crime[year == "2020" | year == "2021"]
+data2020 <- crime[year == "2020"]
+data2021 <- crime[year == "2021"]
+```
+
+## Data exploration
+I created summary tables of descriptive analysis by summarized statistics of the variables that this project concerned about. Then I used bar charts to compare the total number of crime, and the number of crime in different areas in 2020 and 2021. I also used bar chart to show crime in each Los Angeles area in 2021, then used bar chart to show the top15 crime type in Los Angeles. I also generated a bar chart  to show the number of vehicle stolen that occurred in each Los Angeles area, as well as a leaflet map shows the detailed locations of the vehicle stolen occurred.
+
+# Preliminary Results
+## Summary tables of descriptive analysis:
+```{r, cache=TRUE}
+crime_year <- data_all[, .(
+  "Total number of crime" =  .N
+), by = `year` ]
+knitr::kable(crime_year, col.names = c("Year","Total number of crime"), caption = "Table1. Total number of crime in LA")%>%
+kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+```
+
+  Table1 shows that there are 198644 crime in 2020 and 208294 crime in 2021 in Los Angeles. More total number of crime in 2021 than in 2020.
+
+```{r, cache=TRUE}
+crime_2020 <- data2020[, .(
+  "year2020" =  .N
+), by = "AREA NAME"]
+
+crime_2021 <- data2021[, .(
+  "year2021" =  .N
+), by = "AREA NAME"]
+
+crime_data <- data_all[, .(
+  "Total" =  .N
+), by = "AREA NAME"]
+
+#combine two dataframe
+crime_combined1 = merge(crime_2020, crime_2021, by="AREA NAME", all.x=T)
+
+crime_combined2 = merge(crime_combined1, crime_data, by="AREA NAME", all.x=T)
+
+knitr::kable(crime_combined2,col.names = c("Area Name","2020","2021", "Total"), caption = "Table2. Number of crime in different areas in LA")%>% 
+add_header_above(c(" " = 1, "Year" = 2, " " = 1 ))%>%
+kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+```
+
+  Table2 shows that there are 21 areas occured crime and the number of crime in different areas in LA are close in 2020 and in 2021. Total number of crime in all areas had more than 14000 in 2020 and 2021, with 77th Street has the highest crime rate at 26243 and the Foothills has the lowest crime rate at 14056.
+
+## Plots
+1. Used barchart to show crime in LA by year.
+```{r, cache=TRUE}
+ggplot(data_all, aes(x =year)) + 
+  geom_bar(stat = 'count', fill = 'lightblue',width = 0.5) + 
+  labs(title = "Figure1. Total number of crime in LA by year")
+```
+
+  Figure1 shows the total number of crime in 2021 more than in 2020 but the difference is small.
+
+
+2. Used barchart to show crime in different areas in LA by year.
+```{r, cache=TRUE}
+ggplot(data_all, mapping = aes(x = `AREA NAME`), fill = year) + 
+  geom_bar(aes(fill = year)) + 
+  scale_fill_manual(values = c("pink","orange"))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.1))+
+  labs(title = "Figure2. Number of crime in different areas in LA by year", x = "AREA NAME")
+```
+
+  Figure2 shows the number of crime in different areas in LA are close in 2020 and in 2021. 77th Street, Central and Pacific are the three most dangerous areas.
+
+
+3. Used barchart to show crime in different area in LA in 2021.
+```{r, cache=TRUE}
+df<-as.data.frame(crime_2021)
+df %>%
+  mutate(`AREA NAME` = fct_reorder(`AREA NAME`, `year2021`)) %>%
+  ggplot(aes(x=`AREA NAME`, y=`year2021`)) +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    theme(axis.text.x = element_text(hjust = 0.5, vjust = 0.1))+
+    labs(title = "Figure3. Number of crime in different areas in LA in 2021")+    
+    theme_gray(base_size = 10)+
+    coord_flip()
+```
+
+  Figure3 shows that 77th Street, Central, and Pacific are the three most dangerous areas that have the highest crime in 2021.
+
+
+4. Used barchart to show the top 15 crime type in LA in 2021.
+```{r, cache=TRUE}
+data2021_crime <- data2021[,.(
+  Total =  .N
+),by=c("Crm Cd Desc")]
+
+df1<-as.data.frame(data2021_crime)
+df1 %>%
+  mutate(`Crime type` = fct_reorder(`Crm Cd Desc`, Total)) %>%    
+  head(15)%>% 
+  ggplot(aes(x=`Crime type`, y=Total)) +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    theme(axis.text.x = element_text(hjust = 0.5, vjust = 0.1))+
+    labs(title = "Figure4. Crime type in LA in 2021")+
+    theme_gray(base_size = 10)+
+    coord_flip()
+```
+
+  Figure4 shows that the most common crime type is vehicle stolen in 2021.
+
+
+5. Used barchart to show the number of vehicle stolen occurred in different areas in 2021.
+```{r, cache=TRUE}
+vs <- data2021[`Crm Cd` == "510"]
+vs1 <- vs[(LAT!=0)|(LON!=0)][, .(
+  "Total" =  .N
+), by = "AREA NAME"]
+
+df2<-as.data.frame(vs1)
+df2 %>%
+  mutate(`AREA NAME` = fct_reorder(`AREA NAME`, Total)) %>%    
+  ggplot(aes(x=`AREA NAME`, y=Total)) +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    theme(axis.text.x = element_text(hjust = 0.5, vjust = 0.1))+
+    labs(title = "Figure5. Vehicle stolen in each Los Angeles area in 2021")+
+    theme_gray(base_size = 10)+
+    coord_flip()
+```
+
+  Figure5 shows that the most vehicle stolen occurred on 77th Street in 2021.
+
+
+6. Used leaflet map to visually show the detail locations of the vehicle stolen occurred in 2021.
+```{r}
+vs.pal <- colorFactor(c('darkgreen','goldenrod', 'brown'), domain=vs$`AREA NAME`)
+
+map <- leaflet(vs[(LAT!=0)|(LON!=0)]) %>% 
+  # The looks of the Map
+  addProviderTiles('OpenStreetMap') %>% 
+  # Some circles
+  addCircles(
+    lat = ~LAT, lng=~LON, 
+  # HERE IS OUR PAL!
+    color = ~ vs.pal(`AREA NAME`),
+    opacity = 1, fillOpacity = 1, radius = 0.01
+    ) %>%
+  # And a pretty legend
+    addLegend('bottomleft', pal=vs.pal, values=vs$`AREA NAME`, title='Area name', opacity=1)
+map
+```
+
+
+# Conclusion
+From 2020 to 2021, although the number of crime in 21 different areas in Los Angeles has not changed obviously, overall, the crime in Los Angeles has not decreased but increased. In 2021, 77th Street, Central, and Pacific of Los Angeles have the most crime occurred, and so do 2020. In 2021, the most common crime type is vehicle stolen which most occurred on 77th Street.
+
